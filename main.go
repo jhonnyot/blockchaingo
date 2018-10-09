@@ -1,35 +1,36 @@
 package main
 
 import (
-        "crypto/sha256"
-        "encoding/hex"
-        "encoding/json"
-        "fmt"
-        "io"
-        "log"
-        "net/http"
-        "os"
-        "strconv"
-        "strings"
-        "sync"
-        "time"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"io"
+	"log"
+	"net/http"
+	"os"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
 
-        "github.com/davecgh/go-spew/spew"
-        "github.com/gorilla/mux"
-        "github.com/joho/godotenv"
+	"github.com/davecgh/go-spew/spew"
+	"github.com/gorilla/mux"
+	"github.com/joho/godotenv"
 )
+
 // dificuldade
-const DIFICULDADE = 1
+const DIFICULDADE = 4
 
 // declaracao de bloco
 type Bloco struct {
-	Indice 		int
-	Timestamp	string
-	Dados		int
-	Hash		string
-	HashAnt		string
-	Dificuldade	int
-	Nonce		string
+	Indice      int
+	Timestamp   string
+	Dados       int
+	Hash        string
+	HashAnt     string
+	Dificuldade int
+	Nonce       string
 }
 
 // declaracao de blockchain
@@ -66,17 +67,17 @@ func main() {
 //funcao que cria e configura o servlet
 func run() error {
 	mux := makeMuxRouter()
-	httpAddr := os.GetEnv("ADDR")
+	httpAddr := os.Getenv("ADDR")
 	log.Println("Servlet ouvindo na porta ", httpAddr)
-	server := &http.Server {
-		Addr		: ":" + httpAddr,
-		Handler		: mux,
-		ReadTimeout	: 10 * time.Second,
-		WriteTimeout	: 10 * time.Second,
-		MaxHeaderBytes	: 1 << 20,
+	server := &http.Server{
+		Addr:           ":" + httpAddr,
+		Handler:        mux,
+		ReadTimeout:    10 * time.Second,
+		WriteTimeout:   10 * time.Second,
+		MaxHeaderBytes: 1 << 20,
 	}
 
-	if err := s.ListenAndServe();	err != nil {
+	if err := server.ListenAndServe(); err != nil {
 		return err
 	}
 
@@ -106,12 +107,12 @@ func handleEscreveBloco(writer http.ResponseWriter, req *http.Request) {
 	writer.Header().Set("Content-Type", "application/json")
 	var m Mensagem
 
-	decoder := json.NewDecoder(r.Body)
+	decoder := json.NewDecoder(req.Body)
 	if err := decoder.Decode(&m); err != nil {
-		respondWithJSON(writer, req, http.StatusBadRequest, r.Body)
+		respondWithJSON(writer, req, http.StatusBadRequest, req.Body)
 		return
 	}
-	defer r.Body.Close()
+	defer req.Body.Close()
 
 	//garante atomicidade ao criar o bloco
 	mutex.Lock()
@@ -121,7 +122,7 @@ func handleEscreveBloco(writer http.ResponseWriter, req *http.Request) {
 	//desfaz o lock
 	mutex.Unlock()
 
-	if blocoValido(novoBloco, Blockchain[len(Blockchain-1)]) {
+	if blocoValido(novoBloco, Blockchain[len(Blockchain)-1]) {
 		Blockchain = append(Blockchain, novoBloco)
 		spew.Dump(Blockchain)
 	}
@@ -134,7 +135,7 @@ func blocoValido(novoBloco, blocoAnterior Bloco) bool {
 	if blocoAnterior.Indice+1 != novoBloco.Indice {
 		return false
 	}
-	if blocoAnterior.Hash != novoBloco.HashAnterior {
+	if blocoAnterior.Hash != novoBloco.HashAnt {
 		return false
 	}
 	if calculaHash(novoBloco) != novoBloco.Hash {
@@ -146,7 +147,7 @@ func blocoValido(novoBloco, blocoAnterior Bloco) bool {
 
 //calculadora de hashes
 func calculaHash(bloco Bloco) string {
-	totalDados := strconv.Itoa(bloco.Indice) + bloco.Timestamp + strconv.Itoa(bloco.Dados) + bloco.HashAnterior + bloco.Nonce
+	totalDados := strconv.Itoa(bloco.Indice) + bloco.Timestamp + strconv.Itoa(bloco.Dados) + bloco.HashAnt + bloco.Nonce
 	hasher := sha256.New()
 	hasher.Write([]byte(totalDados))
 	hashFinal := hasher.Sum(nil)
@@ -154,24 +155,24 @@ func calculaHash(bloco Bloco) string {
 }
 
 //validador de hash
-func validaHash(hash string, dificuldade int) {
+func validaHash(hash string, dificuldade int) bool {
 	prefixo := strings.Repeat("0", dificuldade)
 	return strings.HasPrefix(hash, prefixo)
 }
 
 //gerador de blocos
-func geraBloco(blocoAntigo Bloco, dados int) {
+func geraBloco(blocoAntigo Bloco, dados int) Bloco {
 	var novoBloco Bloco
 
 	t := time.Now()
 
-	novoBloco.Indice 	= blocoAntigo.Indice+1
-	novoBloco.Timestamp 	= t.String()
-	novoBloco.Dados		= dados
-	novoBloco.HashAnterior	= blocoAntigo.Hash
-	novoBloco.Dificuldade 	= DIFICULDADE
+	novoBloco.Indice = blocoAntigo.Indice + 1
+	novoBloco.Timestamp = t.String()
+	novoBloco.Dados = dados
+	novoBloco.HashAnt = blocoAntigo.Hash
+	novoBloco.Dificuldade = DIFICULDADE
 
-	for i := 0;;i++ {
+	for i := 0; ; i++ {
 		hex := fmt.Sprintf("%x", i)
 		novoBloco.Nonce = hex
 		if !validaHash(calculaHash(novoBloco), novoBloco.Dificuldade) {
@@ -187,18 +188,15 @@ func geraBloco(blocoAntigo Bloco, dados int) {
 	return novoBloco
 }
 
-
-
 //handler de erro
 func respondWithJSON(writer http.ResponseWriter, r *http.Request, code int, payload interface{}) {
-        writer.Header().Set("Content-Type", "application/json")
-        response, err := json.MarshalIndent(payload, "", "  ")
-        if err != nil {
-                writer.WriteHeader(http.StatusInternalServerError)
-                writer.Write([]byte("HTTP 500: Internal Server Error"))
-                return
-        }
-        writer.WriteHeader(code)
-        writer.Write(response)
+	writer.Header().Set("Content-Type", "application/json")
+	response, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		writer.WriteHeader(http.StatusInternalServerError)
+		writer.Write([]byte("HTTP 500: Internal Server Error"))
+		return
+	}
+	writer.WriteHeader(code)
+	writer.Write(response)
 }
-
