@@ -19,8 +19,13 @@ import (
 	"github.com/joho/godotenv"
 )
 
-// dificuldade
-const DIFICULDADE = 4
+/*
+• Constantes
+*/
+const dificuldade = 6
+const numeroMaximoThreads = 1
+const numeroMaximoBlocos = 5
+const contador = 1E7
 
 // declaracao de bloco
 type Bloco struct {
@@ -54,7 +59,7 @@ func main() {
 	go func() {
 		t := time.Now()
 		blocoGenese := Bloco{}
-		blocoGenese = Bloco{0, t.String(), 0, calculaHash(blocoGenese), "", DIFICULDADE, ""}
+		blocoGenese = Bloco{0, t.String(), 0, calculaHash(blocoGenese), "", dificuldade, ""}
 		spew.Dump(blocoGenese)
 
 		mutex.Lock()
@@ -170,14 +175,17 @@ func geraBloco(blocoAntigo Bloco, dados int) Bloco {
 	novoBloco.Timestamp = t.String()
 	novoBloco.Dados = dados
 	novoBloco.HashAnt = blocoAntigo.Hash
-	novoBloco.Dificuldade = DIFICULDADE
+	novoBloco.Dificuldade = dificuldade
 
 	for i := 0; ; i++ {
 		hex := fmt.Sprintf("%x", i)
 		novoBloco.Nonce = hex
 		if !validaHash(calculaHash(novoBloco), novoBloco.Dificuldade) {
-			fmt.Println(calculaHash(novoBloco), " invalido.")
-			time.Sleep(time.Millisecond)
+			if i%contador == 0 {
+				fmt.Println(i)
+			}
+			// fmt.Println(calculaHash(novoBloco), " invalido.")
+			// time.Sleep(time.Millisecond)
 			continue
 		} else {
 			fmt.Println(calculaHash(novoBloco), " valido.")
