@@ -19,7 +19,7 @@ import (
 	"github.com/joho/godotenv"
 )
 
-//declaracao da estrutura de bloco
+//declaracao da estrutura de Bloco
 type Bloco struct {
 	Indice    int
 	Timestamp string
@@ -29,7 +29,7 @@ type Bloco struct {
 	Validador string
 }
 
-//declaracao das variaveis de blockchain
+//declaracao das variaveis de Blockchain
 var Blockchain []Bloco
 var tempBlocos []Bloco
 
@@ -68,8 +68,8 @@ func geraBloco(blocoAnterior Bloco, dados int, endereco string) (Bloco, error) {
 	novoBloco.Indice = blocoAnterior.Indice + 1
 	novoBloco.Timestamp = t.String()
 	novoBloco.Dados = dados
-	novoBloco.Hash = calculaHashBloco(novoBloco)
 	novoBloco.HashAnt = blocoAnterior.Hash
+	novoBloco.Hash = calculaHashBloco(novoBloco)
 	novoBloco.Validador = endereco
 
 	return novoBloco, nil
@@ -123,7 +123,7 @@ func handleConexao(conexao net.Conn) {
 		break
 	}
 
-	io.WriteString(conexao, "\nEntre com os dados:")
+	io.WriteString(conexao, "\nEntre com os dados:\n")
 	scanDados := bufio.NewScanner(conexao)
 
 	go func() {
@@ -151,13 +151,13 @@ func handleConexao(conexao net.Conn) {
 				if blocoValido(novoBloco, ultimoIndiceAntigo) {
 					filaDeBlocos <- novoBloco
 				}
-				io.WriteString(conexao, "\nEntre com novos dados:")
+				io.WriteString(conexao, "\nEntre com novos dados:\n")
 			}
 		}
 	}()
 	//printa o estado do blockchain a cada minuto
 	for {
-		time.Sleep(time.Minute)
+		time.Sleep(30 * time.Second)
 		mutex.Lock()
 		output, err := json.Marshal(Blockchain)
 		mutex.Unlock()
@@ -165,6 +165,7 @@ func handleConexao(conexao net.Conn) {
 			log.Fatal(err)
 		}
 		io.WriteString(conexao, string(output)+"\n")
+		log.Println(string(output))
 	}
 }
 
@@ -210,7 +211,7 @@ func escolheValidador() {
 				mutex.Lock()
 				Blockchain = append(Blockchain, bloco)
 				mutex.Unlock()
-				for _ = range validadores {
+				for range validadores {
 					anunciador <- "\nValidador do bloco mais atual: " + vencedor + "\n"
 				}
 				break
@@ -220,6 +221,30 @@ func escolheValidador() {
 	mutex.Lock()
 	tempBlocos = []Bloco{}
 	mutex.Unlock()
+}
+
+func criaConexao() (net.Conn, error) {
+	conexao, err := net.Dial("tcp", "localhost:"+os.Getenv("ADDR"))
+	if err != nil {
+		log.Fatal(err)
+	}
+	return conexao, err
+}
+
+func tcpClient() {
+	time.Sleep(5 * time.Second)
+	log.Println("client")
+	for i := 0; i < 5; i++ {
+		conexao, err := criaConexao()
+		if err != nil {
+			log.Fatal(err)
+		}
+		source := rand.NewSource(time.Now().Unix())
+		numero := rand.New(source)
+		fmt.Fprintf(conexao, string(numero.Intn(15000)))
+		fmt.Fprintf(conexao, string(numero.Intn(1000)))
+		log.Println(i)
+	}
 }
 
 func main() {
@@ -250,8 +275,12 @@ func main() {
 	}()
 
 	go func() {
-		escolheValidador()
+		for {
+			escolheValidador()
+		}
 	}()
+
+	go tcpClient()
 
 	for {
 		conexao, err := server.Accept()
