@@ -231,22 +231,6 @@ func criaConexao() (net.Conn, error) {
 	return conexao, err
 }
 
-func tcpClient() {
-	time.Sleep(5 * time.Second)
-	log.Println("client")
-	for i := 0; i < 5; i++ {
-		conexao, err := criaConexao()
-		if err != nil {
-			log.Fatal(err)
-		}
-		source := rand.NewSource(time.Now().Unix())
-		numero := rand.New(source)
-		fmt.Fprintf(conexao, string(numero.Intn(15000)))
-		fmt.Fprintf(conexao, string(numero.Intn(1000)))
-		log.Println(i)
-	}
-}
-
 func main() {
 	err := godotenv.Load()
 	if err != nil {
@@ -279,8 +263,6 @@ func main() {
 			escolheValidador()
 		}
 	}()
-
-	go tcpClient()
 
 	for {
 		conexao, err := server.Accept()
