@@ -22,7 +22,7 @@ import (
 /*
 • Constantes
 */
-const dificuldade = 6
+const dificuldade = 5
 const numeroMaximoThreads = 1
 const numeroMaximoBlocos = 5
 const contador = 1E7
@@ -129,7 +129,7 @@ func handleEscreveBloco(writer http.ResponseWriter, req *http.Request) {
 
 	if blocoValido(novoBloco, Blockchain[len(Blockchain)-1]) {
 		Blockchain = append(Blockchain, novoBloco)
-		spew.Dump(Blockchain)
+		spew.Dump(novoBloco)
 	}
 
 	respondWithJSON(writer, req, http.StatusCreated, novoBloco)
