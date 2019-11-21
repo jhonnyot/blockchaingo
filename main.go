@@ -22,7 +22,7 @@ import (
 /*
 • Constantes
 */
-const dificuldade = 5
+//const dificuldade = 5
 const numeroMaximoThreads = 1
 const numeroMaximoBlocos = 5
 const contador = 1E7
@@ -43,7 +43,8 @@ var Blockchain []Bloco
 
 // mensagem para handling post/get
 type Mensagem struct {
-	Dados int
+	Dados       int
+	Dificuldade int
 }
 
 // mutex para garantir nao-concorrencia e evitar acessos simultaneos
@@ -59,7 +60,7 @@ func main() {
 	go func() {
 		t := time.Now()
 		blocoGenese := Bloco{}
-		blocoGenese = Bloco{0, t.String(), 0, calculaHash(blocoGenese), "", dificuldade, ""}
+		blocoGenese = Bloco{0, t.String(), 0, calculaHash(blocoGenese), "", 0, ""}
 		spew.Dump(blocoGenese)
 
 		mutex.Lock()
@@ -122,7 +123,7 @@ func handleEscreveBloco(writer http.ResponseWriter, req *http.Request) {
 	//garante atomicidade ao criar o bloco
 	mutex.Lock()
 
-	novoBloco := geraBloco(Blockchain[len(Blockchain)-1], m.Dados)
+	novoBloco := geraBloco(Blockchain[len(Blockchain)-1], m.Dados, m.Dificuldade)
 
 	//desfaz o lock
 	mutex.Unlock()
@@ -166,7 +167,7 @@ func validaHash(hash string, dificuldade int) bool {
 }
 
 //gerador de blocos
-func geraBloco(blocoAntigo Bloco, dados int) Bloco {
+func geraBloco(blocoAntigo Bloco, dados int, dificuldade int) Bloco {
 	var novoBloco Bloco
 
 	t := time.Now()
@@ -184,11 +185,9 @@ func geraBloco(blocoAntigo Bloco, dados int) Bloco {
 			if i%contador == 0 {
 				fmt.Println(i)
 			}
-			// fmt.Println(calculaHash(novoBloco), " invalido.")
-			// time.Sleep(time.Millisecond)
 			continue
 		} else {
-			fmt.Println(calculaHash(novoBloco), " valido.")
+			fmt.Println(calculaHash(novoBloco), " válido. "+strconv.Itoa(i)+" iterações.")
 			novoBloco.Hash = calculaHash(novoBloco)
 			break
 		}
