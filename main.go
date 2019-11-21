@@ -134,7 +134,9 @@ func handleConexao(conexao net.Conn) {
 
 				if err != nil {
 					log.Printf("%v NaN: %v", scanDados.Text(), err)
+					mutex.Lock()
 					delete(validadores, endereco)
+					mutex.Unlock()
 					conexao.Close()
 				}
 				//determina o último indice da blockchain
@@ -159,7 +161,7 @@ func handleConexao(conexao net.Conn) {
 	for {
 		time.Sleep(30 * time.Second)
 		mutex.Lock()
-		output, err := json.Marshal(Blockchain)
+		output, err := json.MarshalIndent(Blockchain, "", "	")
 		mutex.Unlock()
 		if err != nil {
 			log.Fatal(err)
@@ -171,7 +173,7 @@ func handleConexao(conexao net.Conn) {
 
 //funcao que decide qual validador "vencerá" a validação
 func escolheValidador() {
-	time.Sleep(30 * time.Second)
+	time.Sleep(3 * time.Second)
 	mutex.Lock()
 	temp := tempBlocos
 	mutex.Unlock()
@@ -210,10 +212,11 @@ func escolheValidador() {
 			if bloco.Validador == vencedor {
 				mutex.Lock()
 				Blockchain = append(Blockchain, bloco)
-				mutex.Unlock()
+
 				for range validadores {
 					anunciador <- "\nValidador do bloco mais atual: " + vencedor + "\n"
 				}
+				mutex.Unlock()
 				break
 			}
 		}
