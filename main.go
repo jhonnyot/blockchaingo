@@ -1,21 +1,23 @@
 package main
 
 import (
-	"bufio"
+	// "bufio"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
+	// "fmt"
 	"io"
 	"log"
 	"math/rand"
-	"net"
+	// "net"
+	"net/http"
 	"os"
-	"strconv"
 	"sync"
 	"time"
 
 	"github.com/davecgh/go-spew/spew"
+	"github.com/google/uuid"
+	"github.com/gorilla/mux"
 	"github.com/joho/godotenv"
 )
 
@@ -29,12 +31,26 @@ type Bloco struct {
 	Validador string
 }
 
+//carteira
+type Carteira struct {
+	ID     uuid.UUID `json:"id"`
+	Stakes []Stake   `json:"stakes"`
+}
+
+//stake
+type Stake struct {
+	ID         uuid.UUID `json:"id"`
+	IDCarteira uuid.UUID `json:"idcarteira"`
+	Dados      int       `json:"dados"`
+	Tokens     int       `json:"tokens"`
+}
+
 //declaracao das variaveis de Blockchain
 var Blockchain []Bloco
 var tempBlocos []Bloco
 
 //handler de novos blocos para validação
-var filaDeBlocos = make(chan Bloco)
+var filaDeBlocos []Bloco
 
 //validadores
 var validadores = make(map[string]int)
@@ -60,14 +76,14 @@ func calculaHashBloco(bloco Bloco) string {
 }
 
 //gerador de novos blocos
-func geraBloco(blocoAnterior Bloco, dados int, endereco string) (Bloco, error) {
+func geraBloco(blocoAnterior Bloco, endereco string, stake Stake) (Bloco, error) {
 	var novoBloco Bloco
 
 	t := time.Now()
 
 	novoBloco.Indice = blocoAnterior.Indice + 1
 	novoBloco.Timestamp = t.String()
-	novoBloco.Dados = dados
+	novoBloco.Dados = stake.Dados
 	novoBloco.HashAnt = blocoAnterior.Hash
 	novoBloco.Hash = calculaHashBloco(novoBloco)
 	novoBloco.Validador = endereco
@@ -90,89 +106,18 @@ func blocoValido(novoBloco, blocoAnterior Bloco) bool {
 	return true
 }
 
-//handler de conexao tcp
-func handleConexao(conexao net.Conn) {
-	defer conexao.Close()
-
-	go func() {
-		for {
-			msg := <-anunciador
-			io.WriteString(conexao, msg)
-		}
-	}()
-	//endereco do validador
-	var endereco string
-
-	/*
-		permite a alocacao da quantidade de tokens na stake
-		de acordo com o paradigma PoS, quanto maior o número de tokens,
-		maior a chance do validador gerar um bloco
-	*/
-	io.WriteString(conexao, "Entre com o número de Tokens a serem colocados na stake:")
-	scanTokens := bufio.NewScanner(conexao)
-	for scanTokens.Scan() {
-		saldo, err := strconv.Atoi(scanTokens.Text())
-		if err != nil {
-			log.Printf("%v NaN: %v", scanTokens.Text(), err)
-			return
-		}
-		t := time.Now()
-		endereco = calculaHash(t.String())
-		validadores[endereco] = saldo
-		fmt.Println(validadores)
-		break
-	}
-
-	io.WriteString(conexao, "\nEntre com os dados:\n")
-	scanDados := bufio.NewScanner(conexao)
-
-	go func() {
-		for {
-			//coleta os dados, valida e adiciona novo bloco
-			for scanDados.Scan() {
-				dados, err := strconv.Atoi(scanDados.Text())
-
-				if err != nil {
-					log.Printf("%v NaN: %v", scanDados.Text(), err)
-					mutex.Lock()
-					delete(validadores, endereco)
-					mutex.Unlock()
-					conexao.Close()
-				}
-				//determina o último indice da blockchain
-				mutex.Lock()
-				ultimoIndiceAntigo := Blockchain[len(Blockchain)-1]
-				mutex.Unlock()
-
-				//cria novo bloco
-				novoBloco, err := geraBloco(ultimoIndiceAntigo, dados, endereco)
-				if err != nil {
-					log.Println(err)
-					continue
-				}
-				if blocoValido(novoBloco, ultimoIndiceAntigo) {
-					filaDeBlocos <- novoBloco
-				}
-				io.WriteString(conexao, "\nEntre com novos dados:\n")
-			}
-		}
-	}()
-	//printa o estado do blockchain a cada minuto
-	for {
-		time.Sleep(30 * time.Second)
-		mutex.Lock()
-		output, err := json.MarshalIndent(Blockchain, "", "	")
-		mutex.Unlock()
-		if err != nil {
-			log.Fatal(err)
-		}
-		io.WriteString(conexao, string(output)+"\n")
-		log.Println(string(output))
-	}
-}
-
 //funcao que decide qual validador "vencerá" a validação
 func escolheValidador() {
+	spew.Dump("Validando")
+	go func() {
+		mutex.Lock()
+		for _, candidato := range filaDeBlocos {
+			tempBlocos = append(tempBlocos, candidato)
+		}
+		filaDeBlocos = []Bloco{}
+		mutex.Unlock()
+	}()
+	spew.Dump(filaDeBlocos)
 	time.Sleep(3 * time.Second)
 	mutex.Lock()
 	temp := tempBlocos
@@ -204,34 +149,90 @@ func escolheValidador() {
 		}
 
 		//escolhe um vencedor aleatório
-		source := rand.NewSource(time.Now().Unix())
-		numero := rand.New(source)
-		vencedor := loteria[numero.Intn(len(loteria))]
+		if len(loteria) > 0 {
+			source := rand.NewSource(time.Now().Unix())
+			numero := rand.New(source)
+			vencedor := loteria[numero.Intn(len(loteria))]
 
-		for _, bloco := range temp {
-			if bloco.Validador == vencedor {
-				mutex.Lock()
-				Blockchain = append(Blockchain, bloco)
-
-				for range validadores {
-					anunciador <- "\nValidador do bloco mais atual: " + vencedor + "\n"
+			for _, bloco := range temp {
+				if bloco.Validador == vencedor {
+					mutex.Lock()
+					Blockchain = append(Blockchain, bloco)
+					delete(validadores, bloco.Validador)
+					loteria = []string{}
+					spew.Dump(Blockchain)
+					mutex.Unlock()
+					break
 				}
-				mutex.Unlock()
-				break
 			}
 		}
+
 	}
 	mutex.Lock()
 	tempBlocos = []Bloco{}
 	mutex.Unlock()
 }
 
-func criaConexao() (net.Conn, error) {
-	conexao, err := net.Dial("tcp", "localhost:"+os.Getenv("ADDR"))
+//funcao que cria o roteador
+func makeMuxRouter() http.Handler {
+	muxRouter := mux.NewRouter()
+	muxRouter.HandleFunc("/", handleGetBlockchain).Methods("GET")
+	muxRouter.HandleFunc("/", handleEscreveBloco).Methods("POST")
+	return muxRouter
+}
+
+//handler do blockchain
+func handleGetBlockchain(writer http.ResponseWriter, req *http.Request) {
+	bytes, err := json.MarshalIndent(Blockchain, "", "  ")
 	if err != nil {
-		log.Fatal(err)
+		http.Error(writer, err.Error(), http.StatusInternalServerError)
+		return
 	}
-	return conexao, err
+	io.WriteString(writer, string(bytes))
+}
+
+//handler de bloco (escreve novo bloco)
+func handleEscreveBloco(writer http.ResponseWriter, req *http.Request) {
+	writer.Header().Set("Content-Type", "application/json")
+	var stake Stake
+
+	decoder := json.NewDecoder(req.Body)
+	if err := decoder.Decode(&stake); err != nil {
+		respondWithJSON(writer, req, http.StatusBadRequest, req.Body)
+		return
+	}
+	defer req.Body.Close()
+
+	endereco := calculaHash(stake.ID.String())
+	validadores[endereco] = stake.Tokens
+	spew.Dump(validadores)
+
+	//determina o último indice da blockchain
+	mutex.Lock()
+	ultimoIndiceAntigo := Blockchain[len(Blockchain)-1]
+	mutex.Unlock()
+
+	//cria novo bloco
+	novoBloco, err := geraBloco(ultimoIndiceAntigo, endereco, stake)
+	if err != nil {
+		log.Println(err)
+	}
+	respondWithJSON(writer, req, http.StatusCreated, novoBloco)
+	if blocoValido(novoBloco, ultimoIndiceAntigo) {
+		filaDeBlocos = append(filaDeBlocos, novoBloco)
+	}
+}
+
+func respondWithJSON(writer http.ResponseWriter, r *http.Request, code int, payload interface{}) {
+	writer.Header().Set("Content-Type", "application/json")
+	response, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		writer.WriteHeader(http.StatusInternalServerError)
+		writer.Write([]byte("HTTP 500: Internal Server Error"))
+		return
+	}
+	writer.WriteHeader(code)
+	writer.Write(response)
 }
 
 func main() {
@@ -239,39 +240,42 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	//cria o bloco gênese
-	t := time.Now()
-	blocoGenese := Bloco{}
-	blocoGenese = Bloco{0, t.String(), 0, calculaHashBloco(blocoGenese), "", ""}
-	spew.Dump(blocoGenese)
-	Blockchain = append(Blockchain, blocoGenese)
-
-	//cria servidor tcp
-	server, err := net.Listen("tcp", ":"+os.Getenv("ADDR"))
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer server.Close()
 
 	go func() {
-		for candidato := range filaDeBlocos {
-			mutex.Lock()
-			tempBlocos = append(tempBlocos, candidato)
-			mutex.Unlock()
-		}
+		t := time.Now()
+		blocoGenese := Bloco{}
+		blocoGenese = Bloco{0, t.String(), 0, calculaHashBloco(blocoGenese), "", ""}
+		spew.Dump(blocoGenese)
+
+		mutex.Lock()
+		Blockchain = append(Blockchain, blocoGenese)
+		mutex.Unlock()
 	}()
 
 	go func() {
+		time.Sleep(10 * time.Second)
 		for {
 			escolheValidador()
 		}
 	}()
+	log.Fatal(run())
+}
 
-	for {
-		conexao, err := server.Accept()
-		if err != nil {
-			log.Fatal(err)
-		}
-		go handleConexao(conexao)
+func run() error {
+	mux := makeMuxRouter()
+	httpAddr := os.Getenv("ADDR")
+	log.Println("Servlet ouvindo na porta ", httpAddr)
+	server := &http.Server{
+		Addr:           ":" + httpAddr,
+		Handler:        mux,
+		ReadTimeout:    10 * time.Second,
+		WriteTimeout:   10 * time.Second,
+		MaxHeaderBytes: 1 << 20,
 	}
+
+	if err := server.ListenAndServe(); err != nil {
+		return err
+	}
+
+	return nil
 }
